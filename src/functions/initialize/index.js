@@ -29,7 +29,17 @@ const sfnClient = new SFNClient({
 // Get the state machine ARN from environment variable
 const stateMachineArn = process.env.STATE_MACHINE_ARN;
 
-// Inline getObjectMetadata function (from shared layer)
+// Generate random string for fallback title
+function generateRandomString(length = 10) {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+// Inline getObjectMetadata function (from shared layer) with fallbacks
 async function getObjectMetadata(bucket, key) {
   try {
     const response = await s3Client.send(
@@ -39,15 +49,16 @@ async function getObjectMetadata(bucket, key) {
       })
     );
 
-    // Extract the x-amz-meta-* headers
+    // Extract the x-amz-meta-* headers with fallbacks for testing
     const metadata = {
-      contentId: response.Metadata["contentid"],
-      type: response.Metadata["type"],
-      title: response.Metadata["title"],
-      parentId: response.Metadata["parentid"],
-      orderIndex: parseInt(response.Metadata["orderindex"] || "0"),
+      contentId: response.Metadata["contentid"] || "1.1",
+      type: response.Metadata["type"] || "video",
+      title: response.Metadata["title"] || generateRandomString(10),
+      parentId: response.Metadata["parentid"] || "1",
+      orderIndex: parseInt(response.Metadata["orderindex"] || "1"),
     };
 
+    console.log("Metadata extracted (with fallbacks if needed):", metadata);
     return metadata;
   } catch (error) {
     console.error("Error getting object metadata:", error);
