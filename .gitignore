@@ -9,7 +9,6 @@ yarn-error.log*
 
 # AWS SAM
 .aws-sam/
-samconfig.toml
 
 # Environment variables
 .env

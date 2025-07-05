@@ -1,0 +1,14 @@
+# samconfig.toml
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "radioia-processor"
+s3_bucket = "radioia-deployments"
+confirm_changeset = true
+resolve_s3 = true
+s3_prefix = "radioia-content-processor"
+region = "sa-east-1"
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+parameter_overrides = []
+image_repositories = []
