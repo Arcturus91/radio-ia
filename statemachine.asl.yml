@@ -1,0 +1,196 @@
+Comment: Video Processing Workflow
+StartAt: DownloadAndExtract
+QueryLanguage: JSONPath
+States:
+  DownloadAndExtract:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    OutputPath: "$.Payload"
+    Parameters:
+      FunctionName: ${DownloadExtractFunctionArn}
+      Payload:
+        fileKey.$: "$.fileKey"
+        sourceBucket.$: "$.sourceBucket"
+        tempPath.$: "$.tempPath"
+        audioPath.$: "$.audioPath"
+        audioBucket: "${AudioBucket}"
+        metadata.$: "$.metadata"
+        outputBucket.$: "$.outputBucket"
+        fileExtension.$: "$.fileExtension"
+    Next: TranscribeChunks
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 3
+        MaxAttempts: 2
+        BackoffRate: 2
+      - ErrorEquals:
+          - States.ALL
+        IntervalSeconds: 3
+        MaxAttempts: 2
+        BackoffRate: 2
+    Catch:
+      - ErrorEquals:
+          - States.ALL
+        ResultPath: "$.error"
+        Next: HandleError
+
+  TranscribeChunks:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    OutputPath: "$.Payload"
+    Parameters:
+      FunctionName: ${TranscribeChunksFunctionArn}
+      Payload:
+        fileKey.$: "$.fileKey"
+        audioBucket: "${AudioBucket}"
+        audioKey.$: "$.audioKey"
+        outputBucket.$: "$.outputBucket"
+        metadata.$: "$.metadata"
+        chunkConfig.$: "$.chunkConfig"
+        fileExtension.$: "$.fileExtension"
+    Next: AnalyzeGetKeywords
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 5
+        MaxAttempts: 3
+        BackoffRate: 2
+      - ErrorEquals:
+          - States.ALL
+        IntervalSeconds: 5
+        MaxAttempts: 3
+        BackoffRate: 2
+    Catch:
+      - ErrorEquals:
+          - States.ALL
+        ResultPath: "$.error"
+        Next: HandleError
+
+  AnalyzeGetKeywords:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    OutputPath: "$.Payload"
+    Parameters:
+      FunctionName: ${AnalyzeGetKeywordsFunctionArn}
+      Payload:
+        outputBucket.$: "$.outputBucket"
+        outputKey.$: "$.outputKey"
+        transcription.$: "$.transcription"
+        metadata.$: "$.metadata"
+        fileKey.$: "$.fileKey"
+        transcriptionKey.$: "$.transcriptionKey"
+        topicsKey.$: "$.topicsKey"
+    Next: GenerateHtml
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 5
+        MaxAttempts: 3
+        BackoffRate: 2
+      - ErrorEquals:
+          - States.ALL
+        IntervalSeconds: 5
+        MaxAttempts: 3
+        BackoffRate: 2
+    Catch:
+      - ErrorEquals:
+          - States.ALL
+        ResultPath: "$.error"
+        Next: HandleError
+
+  GenerateHtml:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    OutputPath: "$.Payload"
+    Parameters:
+      FunctionName: ${HtmlGeneratorFunctionArn}
+      Payload:
+        transcription.$: "$.transcription"
+        metadata.$: "$.metadata"
+        fileKey.$: "$.fileKey"
+        outputKey.$: "$.outputKey"
+        contentId.$: "$.contentId"
+        keyphrases.$: "$.keyphrases"
+        videoUrl.$: "$.videoUrl"
+    Next: NotifySuccess
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 5
+        MaxAttempts: 3
+        BackoffRate: 2
+      - ErrorEquals:
+          - States.ALL
+        IntervalSeconds: 5
+        MaxAttempts: 3
+        BackoffRate: 2
+    Catch:
+      - ErrorEquals:
+          - States.ALL
+        ResultPath: "$.error"
+        Next: HandleError
+
+  NotifySuccess:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    Parameters:
+      FunctionName: ${NotifyFunctionArn}
+      Payload:
+        isError: false
+        executionId.$: "$$.Execution.Id"
+        fileKey.$: "$.fileKey"
+        videoUrl.$: "$.videoUrl"
+    End: true
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 2
+        MaxAttempts: 2
+        BackoffRate: 2
+      - ErrorEquals:
+          - States.ALL
+        IntervalSeconds: 2
+        MaxAttempts: 2
+        BackoffRate: 2
+
+  HandleError:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    Parameters:
+      FunctionName: ${NotifyFunctionArn}
+      Payload:
+        isError: true
+        executionId.$: "$$.Execution.Id"
+        fileKey.$: "$.fileKey"
+        error.$: "$.error"
+    End: true
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 2
+        MaxAttempts: 2
+        BackoffRate: 2
+      - ErrorEquals:
+          - States.ALL
+        IntervalSeconds: 2
+        MaxAttempts: 2
+        BackoffRate: 2

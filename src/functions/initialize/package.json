@@ -1,0 +1,11 @@
+{
+    "name": "initialize-function",
+    "version": "1.0.0",
+    "description": "Initialize video processing workflow",
+    "main": "index.js",
+    "type": "module",
+    "dependencies": {},
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}

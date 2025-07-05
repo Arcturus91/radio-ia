@@ -1,0 +1,412 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: RadioIA Video Processing Pipeline with Step Functions
+
+Resources:
+  # SQS Queue and DLQ
+  VideoProcessingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  VideoProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 60 # Reduced from 900 (15 min) to 60 (1 min) for Step Function pattern
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt VideoProcessingDLQ.Arn
+        maxReceiveCount: 2 # Reduced from 3 to 2 for faster failure detection
+
+  # SQS policy to allow S3 to send messages - MOVED BEFORE S3 BUCKET
+  SQSPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref VideoProcessingQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt VideoProcessingQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:s3:::radioia-media"
+
+  # S3 Centralized Media Bucket - Production bucket with prefixes
+  RadioIAMediaBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: SQSPolicy
+    Properties:
+      BucketName: radioia-media
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt VideoProcessingQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: "video/"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: video-lifecycle-optimization
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 90
+                StorageClass: GLACIER_IR
+              - TransitionInDays: 365
+                StorageClass: DEEP_ARCHIVE
+          - Id: cleanup-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [PUT, POST, GET]
+            AllowedOrigins: ["*"]
+            ExposedHeaders:
+              [ETag, x-amz-server-side-encryption, x-amz-request-id, x-amz-id-2]
+            MaxAge: 3600
+
+  # DynamoDB Table for content metadata
+  RadioIAContentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: radioIAContent
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: contentType
+          AttributeType: S
+        - AttributeName: contentId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: contentType
+          KeyType: HASH
+        - AttributeName: contentId
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: radioai
+          Value: resourceCreated
+
+  # SNS Topics for notifications
+  NotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: Notifications-in-lambdas-RadioIA
+      DisplayName: RadioIA Processing Success Notifications
+      Tags:
+        - Key: radioai
+          Value: resourceCreated
+
+  ErrorsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: Errors-in-lambdas-RadioIA
+      DisplayName: RadioIA Processing Error Notifications
+      Tags:
+        - Key: radioai
+          Value: resourceCreated
+
+  # Common IAM Role for all Lambda functions - FIXED: Proper ARN format
+  RadioIALambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:HeadObject
+                Resource:
+                  # Centralized bucket with prefixes
+                  - !Sub "arn:aws:s3:::${RadioIAMediaBucket}/*"
+
+              # Add bucket-level permissions
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  # Centralized bucket
+                  - !Sub "arn:aws:s3:::${RadioIAMediaBucket}"
+        - PolicyName: SNSPublishPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource:
+                  - !Ref ErrorsTopic
+                  - !Ref NotificationsTopic
+        - PolicyName: SSMParameterPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/gemini/api-key"
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource:
+                  - !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*"
+                Condition:
+                  StringEquals:
+                    "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com"
+        - PolicyName: SQSAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt VideoProcessingQueue.Arn
+        - PolicyName: DynamoDBAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt RadioIAContentTable.Arn
+        - PolicyName: StepFunctionsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*"
+
+  # Step Functions Role
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+
+  # Step Functions State Machine
+  VideoProcessingStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine.asl.yml
+      Role: !GetAtt StepFunctionsExecutionRole.Arn
+      Type: STANDARD
+      DefinitionSubstitutions:
+        DownloadExtractFunctionArn: !GetAtt DownloadExtractFunction.Arn
+        TranscribeChunksFunctionArn: !GetAtt TranscribeChunksFunction.Arn
+        AnalyzeGetKeywordsFunctionArn: !GetAtt AnalyzeGetKeywordsFunction.Arn
+        HtmlGeneratorFunctionArn: !GetAtt HtmlGeneratorFunction.Arn
+        NotifyFunctionArn: !GetAtt NotifyFunction.Arn
+        AudioBucket: !Ref RadioIAMediaBucket
+
+  # Lambda Functions
+  InitializeFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: nodejs20.x
+    Properties:
+      CodeUri: src/functions/initialize/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      Timeout: 30
+      MemorySize: 128
+      Role: !GetAtt RadioIALambdaRole.Arn
+      Layers:
+        - "arn:aws:lambda:sa-east-1:447470050089:layer:nodejs-deps:1"
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref VideoProcessingStateMachine
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt VideoProcessingQueue.Arn
+            BatchSize: 1
+
+  DownloadExtractFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: nodejs20.x
+    Properties:
+      CodeUri: src/functions/download-extract/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      Timeout: 900
+      MemorySize: 3008
+      EphemeralStorage:
+        Size: 5120
+      Role: !GetAtt RadioIALambdaRole.Arn
+      Layers:
+        - "arn:aws:lambda:sa-east-1:447470050089:layer:nodejs-deps:1"
+        - "arn:aws:lambda:sa-east-1:447470050089:layer:ffmpeg:1"
+      Environment:
+        Variables:
+          MEDIA_BUCKET: !Ref RadioIAMediaBucket
+          AUDIO_PREFIX: "audio/"
+
+  TranscribeChunksFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: nodejs20.x
+    Properties:
+      CodeUri: src/functions/transcribe-chunks/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      Timeout: 900
+      MemorySize: 2048
+      EphemeralStorage:
+        Size: 1024
+      Role: !GetAtt RadioIALambdaRole.Arn
+      Layers:
+        - "arn:aws:lambda:sa-east-1:447470050089:layer:nodejs-deps:1"
+      Environment:
+        Variables:
+          MEDIA_BUCKET: !Ref RadioIAMediaBucket
+          AUDIO_PREFIX: "audio/"
+          TRANSCRIPTION_PREFIX: "transcription/"
+
+  NotifyFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: nodejs20.x
+    Properties:
+      CodeUri: src/functions/notify/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      Timeout: 60
+      MemorySize: 128
+      Role: !GetAtt RadioIALambdaRole.Arn
+      Layers:
+        - "arn:aws:lambda:sa-east-1:447470050089:layer:nodejs-deps:1"
+      Environment:
+        Variables:
+          TOPIC_SNS_NOTIFICATION: !Ref NotificationsTopic
+          TOPIC_SNS_ERROR: !Ref ErrorsTopic
+
+  AnalyzeGetKeywordsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: nodejs20.x
+    Properties:
+      CodeUri: src/functions/analyze-get-keywords/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      Timeout: 300
+      MemorySize: 1024
+      Role: !GetAtt RadioIALambdaRole.Arn
+      Layers:
+        - "arn:aws:lambda:sa-east-1:447470050089:layer:nodejs-deps:1"
+      Environment:
+        Variables:
+          TABLE_NAME: "radioIAContent"
+          MEDIA_BUCKET: !Ref RadioIAMediaBucket
+          KEYPHRASES_PREFIX: "keyphrases/"
+          TOPIC_SNS_NOTIFICATION: !Ref NotificationsTopic
+          TOPIC_SNS_ERROR: !Ref ErrorsTopic
+
+  HtmlGeneratorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: nodejs20.x
+    Properties:
+      CodeUri: src/functions/html-generator/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Architectures:
+        - x86_64
+      Timeout: 300
+      MemorySize: 1024
+      Role: !GetAtt RadioIALambdaRole.Arn
+      Layers:
+        - "arn:aws:lambda:sa-east-1:447470050089:layer:nodejs-deps:1"
+      Environment:
+        Variables:
+          TABLE_NAME: "radioIAContent"
+          MEDIA_BUCKET: !Ref RadioIAMediaBucket
+          HTML_PREFIX: "html/"
+
+Outputs:
+  StateMachineArn:
+    Description: ARN of the Step Functions State Machine
+    Value: !Ref VideoProcessingStateMachine
+
+  VideoProcessingQueueUrl:
+    Description: URL of the SQS Queue for video processing
+    Value: !Ref VideoProcessingQueue
+
+  VideoProcessingDLQUrl:
+    Description: URL of the Dead Letter Queue
+    Value: !Ref VideoProcessingDLQ
+
+  RadioIAMediaBucketName:
+    Description: Name of the centralized S3 bucket for all media
+    Value: !Ref RadioIAMediaBucket
