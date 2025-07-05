@@ -82,14 +82,17 @@ const generateHtmlWithOpenAI = async (transcriptedText, _metadata) => {
   try {
     // Initialize OpenAI client if not already done
     if (!openaiClient) {
-      console.log("Initializing OpenAI client with API key from SSM...");
+      console.log("Initializing Gemini client with API key from SSM...");
       const apiKey = await getOpenAIApiKey();
-      openaiClient = new OpenAI({ apiKey });
-      console.log("OpenAI client initialized successfully");
+      openaiClient = new OpenAI({ 
+        apiKey,
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      });
+      console.log("Gemini client initialized successfully");
     }
 
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-4o",
+      model: "gemini-2.0-flash",
       messages: [
         {
           role: "system",

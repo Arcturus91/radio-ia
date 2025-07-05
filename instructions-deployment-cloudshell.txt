@@ -1,0 +1,15 @@
+# Navigate to your project
+cd radio-ia
+
+# Install any new dependencies (if package.json changed)
+for func_dir in src/functions/*/; do
+  if [ -f "$func_dir/package.json" ]; then
+    cd "$func_dir"
+    npm ci --only=production
+    cd - > /dev/null
+  fi
+done
+
+# Build and deploy
+sam build
+sam deploy

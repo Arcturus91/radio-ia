@@ -14,8 +14,23 @@ const REGION = process.env.AWS_REGION || "sa-east-1";
 const ssmClient = new SSMClient({ region: REGION });
 const s3Client = new S3Client({ region: REGION });
 
-// Function to get API key from SSM Parameter Store
+// Function to get OpenAI API key for Whisper transcription
 async function getOpenAIApiKey() {
+  try {
+    const command = new GetParameterCommand({
+      Name: "/radioia/openai/api-key",
+      WithDecryption: true,
+    });
+    const response = await ssmClient.send(command);
+    return response.Parameter.Value;
+  } catch (error) {
+    console.error("Error retrieving OpenAI API key from SSM:", error);
+    throw error;
+  }
+}
+
+// Function to get Gemini API key for topic analysis
+async function getGeminiApiKey() {
   try {
     const command = new GetParameterCommand({
       Name: "/radioia/gemini/api-key",
@@ -24,12 +39,13 @@ async function getOpenAIApiKey() {
     const response = await ssmClient.send(command);
     return response.Parameter.Value;
   } catch (error) {
-    console.error("Error retrieving API key from SSM:", error);
+    console.error("Error retrieving Gemini API key from SSM:", error);
     throw error;
   }
 }
 
 let openaiClient = null;
+let geminiClient = null;
 
 // Inline S3 utility functions (from shared layer)
 async function downloadFileFromS3(bucketName, fileKey, localPath) {
@@ -694,10 +710,21 @@ Instrucciones:
 - Para videos más largos, identifica más segmentos temáticos para mejor organización del contenido
 `;
 
-    console.log("Sending topic analysis request to GPT-4...");
+    // Initialize Gemini client for topic analysis if not already initialized
+    if (!geminiClient) {
+      console.log("Initializing Gemini client for topic analysis...");
+      const geminiApiKey = await getGeminiApiKey();
+      geminiClient = new OpenAI({ 
+        apiKey: geminiApiKey,
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      });
+      console.log("Gemini client initialized successfully");
+    }
 
-    const response = await openaiClient.chat.completions.create({
-      model: "gpt-4o",
+    console.log("Sending topic analysis request to Gemini...");
+
+    const response = await geminiClient.chat.completions.create({
+      model: "gemini-2.0-flash",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.3,

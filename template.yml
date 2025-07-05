@@ -181,6 +181,7 @@ Resources:
                   - ssm:GetParameters
                 Resource:
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/gemini/api-key"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/openai/api-key"
               - Effect: Allow
                 Action:
                   - kms:Decrypt
