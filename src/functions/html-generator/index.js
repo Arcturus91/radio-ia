@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import OpenAI from "openai";
+import { OpenAI } from "openai"; // FIXED: Consistent import syntax
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 
 const REGION = process.env.AWS_REGION || "sa-east-1";
@@ -10,8 +10,9 @@ const dynamoClient = new DynamoDBClient({ region: REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const ssmClient = new SSMClient({ region: REGION });
 
-// Function to get API key from SSM Parameter Store
-async function getOpenAIApiKey() {
+// FIXED: Consistent function naming and comments
+// Function to get Gemini API key from SSM Parameter Store
+async function getGeminiApiKey() {
   try {
     const command = new GetParameterCommand({
       Name: "/radioia/gemini/api-key",
@@ -20,12 +21,13 @@ async function getOpenAIApiKey() {
     const response = await ssmClient.send(command);
     return response.Parameter.Value;
   } catch (error) {
-    console.error("Error retrieving API key from SSM:", error);
+    console.error("Error retrieving Gemini API key from SSM:", error);
     throw error;
   }
 }
 
-let openaiClient = null;
+// FIXED: Consistent client naming
+let geminiClient = null;
 
 const TABLE_NAME = process.env.TABLE_NAME || "radioIAContent";
 
@@ -78,86 +80,112 @@ const updateDynamoDBWithHtml = async (contentId, htmlObjectKey) => {
   }
 };
 
-const generateHtmlWithOpenAI = async (transcriptedText, _metadata) => {
+// FIXED: Consistent function naming and initialization pattern
+const generateHtmlWithGemini = async (transcriptedText, metadata) => {
   try {
-    // Initialize OpenAI client if not already done
-    if (!openaiClient) {
-      console.log("Initializing Gemini client with API key from SSM...");
-      const apiKey = await getOpenAIApiKey();
-      openaiClient = new OpenAI({ 
-        apiKey,
-        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    // Initialize Gemini client if not already done - EXACTLY matching other functions
+    if (!geminiClient) {
+      console.log("Initializing Gemini client for HTML generation...");
+      const geminiApiKey = await getGeminiApiKey();
+      geminiClient = new OpenAI({
+        apiKey: geminiApiKey,
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
       });
       console.log("Gemini client initialized successfully");
     }
 
-    const response = await openaiClient.chat.completions.create({
+    console.log("Sending HTML generation request to Gemini...");
+
+    const response = await geminiClient.chat.completions.create({
       model: "gemini-2.0-flash",
       messages: [
         {
           role: "system",
-          content: [
-            {
-              type: "text",
-              text: "You will be given a transcription of a radio show in Spanish. Your task is to generate HTML content based on this transcription.",
-            },
-          ],
+          content:
+            "Eres un experto en crear resúmenes de contenido para programas de radio en Uruguay. Tu tarea es generar contenido HTML estructurado basado en transcripciones de audio.",
         },
         {
           role: "user",
-          content: `Follow these steps:
+          content: `Analiza esta transcripción de un programa de radio uruguayo y genera contenido HTML estructurado:
 
-1. First, read and analyze the following transcription:
-<transcription>
+Transcripción:
 ${transcriptedText}
-</transcription>
 
-2. Generate a brief description of the video content. This description should be between 50 and 80 words long. Capture the main theme and key points discussed in the video.
+Genera contenido HTML que incluya:
+1. Una descripción de 50-80 palabras sobre el contenido principal
+2. Una lista de 5 temas principales que se discuten
 
-3. Identify and list 5 topics that a viewer will learn by watching this video. These topics should be concise and reflect the main lessons or insights from the content.
+Formato de respuesta JSON:
+{
+  "description": "Descripción de 50-80 palabras del contenido principal",
+  "topics": [
+    "Tema 1",
+    "Tema 2", 
+    "Tema 3",
+    "Tema 4",
+    "Tema 5"
+  ],
+  "html": "<h2>Descripción de la noticia</h2><p>...</p><h3>Temas</h3><ul><li>...</li></ul>"
+}
 
-4. Format your response in HTML as follows: (only use Spanish language)
-   - Use an <h2> tag for the heading "Descripción de la noticia"
-   - Place the brief description in a <p> tag
-   - Use an <h3> tag for the heading "Temas"
-   - Create an unordered list (<ul>) with 5 list items (<li>) for the topics
-
-Your final output should look like this:
-
-<html>
-<h2>Descripción de la noticia</h2>
-<p>[Your 50-80 word description here]</p>
-
-<h3>Temas</h3>
-<ul>
-<li>[Topic 1]</li>
-<li>[Topic 2]</li>
-<li>[Topic 3]</li>
-<li>[Topic 4]</li>
-<li>[Topic 5]</li>
-</ul>
-</html>
-
-Extra considerations that are really important when developing your response:
-- The radio show is about a radio show in Uruguay
-
-Ensure that your description and topics accurately reflect the content of the transcription. Be concise and informative in your language.
-
-All your response shall be done in Latin-American Spanish language.
-
-Return only the HTML content, no explanations or additional text.`,
+Instrucciones importantes:
+- Escribe en español rioplatense (Uruguay/Argentina)
+- Enfócate en temas relevantes para audiencia uruguaya
+- La descripción debe capturar la esencia del programa
+- Los temas deben ser específicos y educativos
+- El HTML debe estar bien formateado y ser válido
+- No incluyas explicaciones adicionales, solo el JSON solicitado`,
         },
       ],
-      temperature: 0.7,
-      max_tokens: 1500,
-      top_p: 0.8,
-      frequency_penalty: 0,
-      presence_penalty: 0,
+      response_format: { type: "json_object" }, // FIXED: Consistent structured output
+      temperature: 0.3, // FIXED: Consistent temperature with other functions
     });
+
+    console.log("Gemini HTML generation response received");
     return response.choices[0].message.content;
   } catch (err) {
-    console.error("Error generating HTML with OpenAI:", err);
+    console.error("Error generating HTML with Gemini:", err);
     throw err;
+  }
+};
+
+// ADDED: Consistent response parsing
+const parseHtmlResponse = (geminiResponse) => {
+  try {
+    console.log("Parsing Gemini HTML response...");
+    const parsedResponse = JSON.parse(geminiResponse);
+
+    if (!parsedResponse.html) {
+      throw new Error("Invalid response format: missing html field");
+    }
+
+    if (!parsedResponse.description || !parsedResponse.topics) {
+      console.warn(
+        "Response missing description or topics, but HTML is present"
+      );
+    }
+
+    console.log("Successfully parsed HTML response");
+    return {
+      html: parsedResponse.html,
+      description: parsedResponse.description,
+      topics: parsedResponse.topics,
+    };
+  } catch (error) {
+    console.error("Error parsing HTML JSON response:", error);
+
+    // Fallback: try to extract HTML directly if it's raw HTML
+    console.log("Attempting fallback HTML extraction...");
+    if (geminiResponse.includes("<h2>") && geminiResponse.includes("</html>")) {
+      console.log("Found raw HTML in response, using directly");
+      return {
+        html: geminiResponse,
+        description: null,
+        topics: null,
+      };
+    }
+
+    throw new Error("Failed to parse HTML from response");
   }
 };
 
@@ -186,14 +214,15 @@ export const handler = async (event) => {
       transcriptedText.length
     );
 
-    // Generate HTML content using OpenAI
-    const htmlContent = await generateHtmlWithOpenAI(
+    // Generate HTML content using Gemini with consistent pattern
+    const geminiResponse = await generateHtmlWithGemini(
       transcriptedText,
       metadata
     );
+    const parsedResult = parseHtmlResponse(geminiResponse);
 
     // Save HTML to S3
-    const htmlObjectKey = await saveHtmlToS3(key, htmlContent);
+    const htmlObjectKey = await saveHtmlToS3(key, parsedResult.html);
 
     // Update DynamoDB with HTML object key
     await updateDynamoDBWithHtml(contentId, htmlObjectKey);
@@ -204,6 +233,9 @@ export const handler = async (event) => {
     return {
       statusCode: 200,
       htmlObjectKey,
+      htmlContent: parsedResult.html,
+      description: parsedResult.description,
+      topics: parsedResult.topics,
       message: "Successfully generated HTML content and updated DynamoDB",
       // Pass through data for Step Functions
       fileKey: key,

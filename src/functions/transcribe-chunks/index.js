@@ -714,9 +714,9 @@ Instrucciones:
     if (!geminiClient) {
       console.log("Initializing Gemini client for topic analysis...");
       const geminiApiKey = await getGeminiApiKey();
-      geminiClient = new OpenAI({ 
+      geminiClient = new OpenAI({
         apiKey: geminiApiKey,
-        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
       });
       console.log("Gemini client initialized successfully");
     }
