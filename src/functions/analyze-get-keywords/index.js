@@ -8,8 +8,9 @@ import {
   PutCommand,
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
-import OpenAI from "openai";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
+
+import { OpenAI } from "openai";
 
 const REGION = process.env.AWS_REGION || "sa-east-1";
 const s3Client = new S3Client({ region: REGION });
@@ -18,7 +19,7 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const ssmClient = new SSMClient({ region: REGION });
 
 // Function to get API key from SSM Parameter Store
-async function getOpenAIApiKey() {
+async function getGeminiApiKey() {
   try {
     const command = new GetParameterCommand({
       Name: "/radioia/gemini/api-key",
@@ -241,16 +242,19 @@ const saveToDynamoDB = async (metadata, transcriptionS3Key, topicsKey) => {
   }
 };
 
-const processWithOpenAI = async (transcriptedText) => {
+const processWithGemini = async (transcriptedText) => {
   try {
-    // Initialize Gemini client if not already done
+    // Initialize Gemini client if not already done - matching your working pattern
     if (!openaiClient) {
       console.log("Initializing Gemini client with API key from SSM...");
-      const apiKey = await getOpenAIApiKey();
-      openaiClient = new OpenAI({ 
-        apiKey,
-        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      const apiKey = await getGeminiApiKey();
+
+      // Use the same pattern as your working transcription code
+      openaiClient = new OpenAI({
+        apiKey: apiKey,
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
       });
+
       console.log("Gemini client initialized successfully");
     }
 
@@ -259,12 +263,8 @@ const processWithOpenAI = async (transcriptedText) => {
       messages: [
         {
           role: "system",
-          content: [
-            {
-              type: "text",
-              text: "You are tasked with extracting the main keyphrases from an audio transcription. This transcription is from a radio show in Uruguay.",
-            },
-          ],
+          content:
+            "You are tasked with extracting the main keyphrases from an audio transcription. This transcription is from a radio show in Uruguay.",
         },
         {
           role: "user",
@@ -304,16 +304,17 @@ Remember, the goal is to capture the essence of the transcription in these keyph
       frequency_penalty: 0,
       presence_penalty: 0,
     });
+
     return response.choices[0].message.content;
   } catch (err) {
-    console.error("Error processing with OpenAI:", err);
+    console.error("Error processing with Gemini:", err);
     throw err;
   }
 };
 
-const parseKeyphrasesResponse = (openAiResponse) => {
+const parseKeyphrasesResponse = (geminiResponse) => {
   try {
-    const matches = openAiResponse.match(
+    const matches = geminiResponse.match(
       /<keyphrases>([\s\S]*?)<\/keyphrases>/
     );
 
@@ -379,9 +380,9 @@ export const handler = async (event) => {
     );
     console.log("Final contentID saved:", finalContentID);
 
-    // Process with OpenAI
-    const openAiResponse = await processWithOpenAI(transcriptedText);
-    const parsedKeyphrases = parseKeyphrasesResponse(openAiResponse);
+    // Process with Gemini
+    const geminiResponse = await processWithGemini(transcriptedText);
+    const parsedKeyphrases = parseKeyphrasesResponse(geminiResponse);
 
     // Save keyphrases to S3
     await saveKeyphrasesToS3(key, parsedKeyphrases);
