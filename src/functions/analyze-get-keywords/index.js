@@ -35,7 +35,7 @@ async function getGeminiApiKey() {
 
 let openaiClient = null;
 
-const CLOUDFRONT_DOMAIN = "df38qf2tnpcai.cloudfront.net";
+const CLOUDFRONT_DOMAIN = "d3n0d8f94zelwc.cloudfront.net";
 const TABLE_NAME = process.env.TABLE_NAME || "radioIAContent";
 
 const saveKeyphrasesToS3 = async (objectKey, keyphrases) => {
