@@ -58,6 +58,7 @@ const saveKeyphrasesToS3 = async (objectKey, keyphrases) => {
   try {
     await s3Client.send(new PutObjectCommand(putObjectParams));
     console.log("Successfully saved keyphrases to S3");
+    return keyphraseObjectKey;
   } catch (err) {
     console.error("Error saving keyphrases to S3:", err);
     throw err;
@@ -411,7 +412,7 @@ export const handler = async (event) => {
     const parsedKeyphrases = parseKeyphrasesResponse(geminiResponse);
 
     // Save keyphrases to S3
-    await saveKeyphrasesToS3(key, parsedKeyphrases);
+    const keyphrasesS3Key = await saveKeyphrasesToS3(key, parsedKeyphrases);
 
     // Construct video URL for notification
     const videoUrl = `https://${CLOUDFRONT_DOMAIN}/${metadata.videoKey}`;
@@ -437,6 +438,7 @@ export const handler = async (event) => {
       audioKey: event.audioKey,
       transcriptionKey: transcriptionS3Key,
       topicsKey: topicsKey,
+      keyphrasesS3Key,
     };
   } catch (err) {
     console.error("Error in handler:", err);

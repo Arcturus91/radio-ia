@@ -124,7 +124,7 @@ States:
         contentId.$: "$.contentId"
         keyphrases.$: "$.keyphrases"
         videoUrl.$: "$.videoUrl"
-        # Pass through object keys from previous steps
+        keyphrasesS3Key.$: "$.keyphrasesS3Key"
         transcriptionKey.$: "$.transcriptionKey"
         audioKey.$: "$.audioKey"
         topicsKey.$: "$.topicsKey"
@@ -167,7 +167,7 @@ States:
         jsonObjectKey.$: "$.jsonObjectKey"
         # Pass through all data that contains object keys
         transcriptionKey.$: "$.transcriptionKey"
-        keyphrases.$: "$.keyphrases"
+        keyphrasesS3Key.$: "$.keyphrasesS3Key"
         audioKey.$: "$.audioKey"
         topicsKey.$: "$.topicsKey"
         outputKey.$: "$.outputKey"

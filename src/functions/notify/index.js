@@ -69,7 +69,7 @@ async function sendWebhookNotification(
 ) {
   try {
     const fileName = fileKey.split("/").pop().split(".")[0];
-    
+
     // Get webhook configuration from SSM
     console.log("Retrieving webhook configuration from SSM...");
     const webhookConfig = await getWebhookConfig();
@@ -88,15 +88,32 @@ async function sendWebhookNotification(
       };
     } else {
       eventType = "content.processing.completed";
-      
+
       // Create URLs for all generated content using SSM CloudFront domain
       const contentUrls = {
-        videoUrl: allContent?.videoUrl || createCloudFrontUrl(fileKey, webhookConfig.cloudfrontDomain),
-        audioUrl: createCloudFrontUrl(allContent?.audioKey, webhookConfig.cloudfrontDomain),
-        transcriptionUrl: createCloudFrontUrl(allContent?.transcriptionKey, webhookConfig.cloudfrontDomain),
-        contentUrl: createCloudFrontUrl(allContent?.jsonObjectKey, webhookConfig.cloudfrontDomain),
-        keyphrasesUrl: createCloudFrontUrl(allContent?.keyphrasesKey, webhookConfig.cloudfrontDomain),
-        topicsUrl: createCloudFrontUrl(allContent?.topicsKey, webhookConfig.cloudfrontDomain),
+        videoUrl:
+          allContent?.videoUrl ||
+          createCloudFrontUrl(fileKey, webhookConfig.cloudfrontDomain),
+        audioUrl: createCloudFrontUrl(
+          allContent?.audioKey,
+          webhookConfig.cloudfrontDomain
+        ),
+        transcriptionUrl: createCloudFrontUrl(
+          allContent?.transcriptionKey,
+          webhookConfig.cloudfrontDomain
+        ),
+        contentUrl: createCloudFrontUrl(
+          allContent?.jsonObjectKey,
+          webhookConfig.cloudfrontDomain
+        ),
+        keyphrasesUrl: createCloudFrontUrl(
+          allContent?.keyphrasesS3Key,
+          webhookConfig.cloudfrontDomain
+        ),
+        topicsUrl: createCloudFrontUrl(
+          allContent?.topicsKey,
+          webhookConfig.cloudfrontDomain
+        ),
       };
 
       data = {
@@ -104,23 +121,23 @@ async function sendWebhookNotification(
         fileKey,
         message: `Tu archivo ${fileName} ha sido procesado exitosamente`,
         processedAt: new Date().toISOString(),
-        
+
         // Generated content metadata (only title)
         title: allContent?.title,
-        
+
         // All generated object keys
         objectKeys: {
           video: fileKey,
           audio: allContent?.audioKey,
           transcription: allContent?.transcriptionKey,
           content: allContent?.jsonObjectKey,
-          keyphrases: allContent?.keyphrasesKey,
+          keyphrases: allContent?.keyphrasesS3Key,
           topics: allContent?.topicsKey,
         },
-        
+
         // CloudFront URLs for easy access
         urls: contentUrls,
-        
+
         // Legacy fields for backward compatibility
         videoUrl: contentUrls.videoUrl,
         jsonObjectKey: allContent?.jsonObjectKey,
@@ -167,7 +184,7 @@ export const handler = async (event) => {
       keywords,
       jsonObjectKey,
       transcriptionKey,
-      keyphrases,
+      keyphrasesS3Key,
       audioKey,
       topicsKey,
     } = event;
@@ -198,7 +215,7 @@ export const handler = async (event) => {
           keywords,
           jsonObjectKey,
           transcriptionKey,
-          keyphrasesKey: typeof keyphrases === 'string' ? keyphrases : keyphrases?.objectKey,
+          keyphrasesS3Key,
           audioKey,
           topicsKey,
         }
@@ -211,13 +228,8 @@ export const handler = async (event) => {
       } webhook notification for ${fileKey}`
     );
     console.log("All content data:", JSON.stringify(allContent, null, 2));
-    
-    await sendWebhookNotification(
-      fileKey,
-      isError,
-      errorMessage,
-      allContent
-    );
+
+    await sendWebhookNotification(fileKey, isError, errorMessage, allContent);
 
     console.log("Webhook notification sent successfully");
 

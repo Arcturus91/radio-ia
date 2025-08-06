@@ -197,6 +197,7 @@ export const handler = async (event) => {
   const metadata = event.metadata;
   const key = event.outputKey || event.fileKey;
   const contentId = event.contentId;
+  const keyphrasesS3Key = event.keyphrasesS3Key;
 
   if (!transcriptedText || !contentId) {
     throw new Error(
@@ -249,7 +250,7 @@ export const handler = async (event) => {
       metadata,
       contentId,
       transcription: transcriptedText,
-      keyphrases: event.keyphrases,
+      keyphrasesS3Key,
       videoUrl: event.videoUrl,
       // Pass through object keys from previous steps
       transcriptionKey: event.transcriptionKey,
