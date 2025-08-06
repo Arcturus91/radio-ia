@@ -433,6 +433,10 @@ export const handler = async (event) => {
       videoUrl,
       transcription: transcriptedText, // Pass through transcription for HTML generator
       outputKey: key, // Pass through for HTML generator
+      // Pass through object keys from previous steps
+      audioKey: event.audioKey,
+      transcriptionKey: transcriptionS3Key,
+      topicsKey: topicsKey,
     };
   } catch (err) {
     console.error("Error in handler:", err);

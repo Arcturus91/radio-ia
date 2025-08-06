@@ -31,57 +31,57 @@ let geminiClient = null;
 
 const TABLE_NAME = process.env.TABLE_NAME || "radioIAContent";
 
-const saveHtmlToS3 = async (objectKey, htmlContent) => {
+const saveJsonToS3 = async (objectKey, jsonContent) => {
   const bucketName = process.env.MEDIA_BUCKET || "radioia-media";
-  const prefix = process.env.HTML_PREFIX || "html/";
+  const prefix = process.env.JSON_PREFIX || "content/";
 
   // Extract just the filename from objectKey (remove any path prefixes)
   const baseFileName = objectKey.replace(/^.*\//, "").replace(/\.json$/, "");
-  const htmlObjectKey = `${prefix}${baseFileName}.html`;
+  const jsonObjectKey = `${prefix}${baseFileName}.json`;
 
   const putObjectParams = {
     Bucket: bucketName,
-    Key: htmlObjectKey,
-    Body: htmlContent,
-    ContentType: "text/html",
+    Key: jsonObjectKey,
+    Body: JSON.stringify(jsonContent, null, 2),
+    ContentType: "application/json",
   };
 
   try {
     await s3Client.send(new PutObjectCommand(putObjectParams));
-    console.log("Successfully saved HTML content to S3");
-    return htmlObjectKey;
+    console.log("Successfully saved JSON content to S3");
+    return jsonObjectKey;
   } catch (err) {
-    console.error("Error saving HTML content to S3:", err);
+    console.error("Error saving JSON content to S3:", err);
     throw err;
   }
 };
 
-const updateDynamoDBWithHtml = async (contentId, htmlObjectKey) => {
+const updateDynamoDBWithJson = async (contentId, jsonObjectKey) => {
   const params = {
     TableName: TABLE_NAME,
     Key: {
       contentType: "CONTENT#VIDEO",
       contentId,
     },
-    UpdateExpression: "SET htmlContent = :htmlContent",
+    UpdateExpression: "SET jsonContent = :jsonContent",
     ExpressionAttributeValues: {
-      ":htmlContent": htmlObjectKey,
+      ":jsonContent": jsonObjectKey,
     },
   };
 
   try {
     await docClient.send(new UpdateCommand(params));
     console.log(
-      `Successfully updated DynamoDB with HTML content for contentId: ${contentId}`
+      `Successfully updated DynamoDB with JSON content for contentId: ${contentId}`
     );
   } catch (error) {
-    console.error("Error updating DynamoDB with HTML content:", error);
+    console.error("Error updating DynamoDB with JSON content:", error);
     throw error;
   }
 };
 
 // FIXED: Consistent function naming and initialization pattern
-const generateHtmlWithGemini = async (transcriptedText, metadata) => {
+const generateContentWithGemini = async (transcriptedText, metadata) => {
   try {
     // Initialize Gemini client if not already done - EXACTLY matching other functions
     if (!geminiClient) {
@@ -94,7 +94,7 @@ const generateHtmlWithGemini = async (transcriptedText, metadata) => {
       console.log("Gemini client initialized successfully");
     }
 
-    console.log("Sending HTML generation request to Gemini...");
+    console.log("Sending content generation request to Gemini...");
 
     const response = await geminiClient.chat.completions.create({
       model: "gemini-2.0-flash",
@@ -102,38 +102,45 @@ const generateHtmlWithGemini = async (transcriptedText, metadata) => {
         {
           role: "system",
           content:
-            "Eres un experto en crear resúmenes de contenido para programas de radio en Uruguay. Tu tarea es generar contenido HTML estructurado basado en transcripciones de audio.",
+            "Eres un experto en crear resúmenes de contenido para programas de radio en Uruguay. Tu tarea es generar contenido estructurado basado en transcripciones de audio.",
         },
         {
           role: "user",
-          content: `Analiza esta transcripción de un programa de radio uruguayo y genera contenido HTML estructurado:
+          content: `Analiza esta transcripción de un programa de radio uruguayo y genera contenido estructurado:
 
 Transcripción:
 ${transcriptedText}
 
-Genera contenido HTML que incluya:
-1. Una descripción de 50-80 palabras sobre el contenido principal
-2. Una lista de 5 temas principales que se discuten
+Genera contenido estructurado que incluya:
+1. Un título atractivo para el contenido
+2. Una descripción de 50-80 palabras sobre el contenido principal
+3. Una lista de 5 temas principales que se discuten (tags)
+4. Las palabras clave más relevantes
 
 Formato de respuesta JSON:
 {
+  "title": "Título atractivo para el contenido",
   "description": "Descripción de 50-80 palabras del contenido principal",
-  "topics": [
+  "tags": [
     "Tema 1",
     "Tema 2", 
     "Tema 3",
     "Tema 4",
     "Tema 5"
   ],
-  "html": "<h2>Descripción de la noticia</h2><p>...</p><h3>Temas</h3><ul><li>...</li></ul>"
+  "keywords": [
+    "palabra1",
+    "palabra2",
+    "palabra3"
+  ]
 }
 
 Instrucciones importantes:
 - Escribe en español rioplatense (Uruguay/Argentina)
 - Enfócate en temas relevantes para audiencia uruguaya
 - La descripción debe capturar la esencia del programa
-- Los temas deben ser específicos y educativos
-- El HTML debe estar bien formateado y ser válido
+- Los tags deben ser específicos y educativos
+- El título debe ser atractivo y descriptivo
 - No incluyas explicaciones adicionales, solo el JSON solicitado`,
         },
       ],
@@ -141,57 +148,46 @@ Instrucciones importantes:
       temperature: 0.3, // FIXED: Consistent temperature with other functions
     });
 
-    console.log("Gemini HTML generation response received");
+    console.log("Gemini content generation response received");
     return response.choices[0].message.content;
   } catch (err) {
-    console.error("Error generating HTML with Gemini:", err);
+    console.error("Error generating content with Gemini:", err);
     throw err;
   }
 };
 
 // ADDED: Consistent response parsing
-const parseHtmlResponse = (geminiResponse) => {
+const parseContentResponse = (geminiResponse) => {
   try {
-    console.log("Parsing Gemini HTML response...");
+    console.log("Parsing Gemini content response...");
     const parsedResponse = JSON.parse(geminiResponse);
 
-    if (!parsedResponse.html) {
-      throw new Error("Invalid response format: missing html field");
+    if (!parsedResponse.title) {
+      throw new Error("Invalid response format: missing title field");
     }
 
-    if (!parsedResponse.description || !parsedResponse.topics) {
+    if (!parsedResponse.description || !parsedResponse.tags) {
       console.warn(
-        "Response missing description or topics, but HTML is present"
+        "Response missing description or tags, but title is present"
       );
     }
 
-    console.log("Successfully parsed HTML response");
+    console.log("Successfully parsed content response");
     return {
-      html: parsedResponse.html,
+      title: parsedResponse.title,
       description: parsedResponse.description,
-      topics: parsedResponse.topics,
+      tags: parsedResponse.tags || [],
+      keywords: parsedResponse.keywords || [],
     };
   } catch (error) {
-    console.error("Error parsing HTML JSON response:", error);
-
-    // Fallback: try to extract HTML directly if it's raw HTML
-    console.log("Attempting fallback HTML extraction...");
-    if (geminiResponse.includes("<h2>") && geminiResponse.includes("</html>")) {
-      console.log("Found raw HTML in response, using directly");
-      return {
-        html: geminiResponse,
-        description: null,
-        topics: null,
-      };
-    }
-
-    throw new Error("Failed to parse HTML from response");
+    console.error("Error parsing content JSON response:", error);
+    throw new Error("Failed to parse content from response");
   }
 };
 
 export const handler = async (event) => {
   console.log(
-    "HTML generator function received event:",
+    "Content generator function received event:",
     JSON.stringify(event, null, 2)
   );
 
@@ -210,33 +206,44 @@ export const handler = async (event) => {
 
   try {
     console.log(
-      "Generating HTML with transcription length:",
+      "Generating content with transcription length:",
       transcriptedText.length
     );
 
-    // Generate HTML content using Gemini with consistent pattern
-    const geminiResponse = await generateHtmlWithGemini(
+    // Generate content using Gemini with consistent pattern
+    const geminiResponse = await generateContentWithGemini(
       transcriptedText,
       metadata
     );
-    const parsedResult = parseHtmlResponse(geminiResponse);
+    const parsedResult = parseContentResponse(geminiResponse);
 
-    // Save HTML to S3
-    const htmlObjectKey = await saveHtmlToS3(key, parsedResult.html);
+    // Create complete content object
+    const contentData = {
+      title: parsedResult.title,
+      description: parsedResult.description,
+      tags: parsedResult.tags,
+      keywords: parsedResult.keywords,
+      metadata: metadata,
+      generatedAt: new Date().toISOString(),
+    };
 
-    // Update DynamoDB with HTML object key
-    await updateDynamoDBWithHtml(contentId, htmlObjectKey);
+    // Save JSON to S3
+    const jsonObjectKey = await saveJsonToS3(key, contentData);
 
-    console.log("HTML generation completed successfully");
+    // Update DynamoDB with JSON object key
+    await updateDynamoDBWithJson(contentId, jsonObjectKey);
+
+    console.log("Content generation completed successfully");
 
     // Return result for Step Function
     return {
       statusCode: 200,
-      htmlObjectKey,
-      htmlContent: parsedResult.html,
+      jsonObjectKey,
+      title: parsedResult.title,
       description: parsedResult.description,
-      topics: parsedResult.topics,
-      message: "Successfully generated HTML content and updated DynamoDB",
+      tags: parsedResult.tags,
+      keywords: parsedResult.keywords,
+      message: "Successfully generated JSON content and updated DynamoDB",
       // Pass through data for Step Functions
       fileKey: key,
       metadata,
@@ -244,9 +251,14 @@ export const handler = async (event) => {
       transcription: transcriptedText,
       keyphrases: event.keyphrases,
       videoUrl: event.videoUrl,
+      // Pass through object keys from previous steps
+      transcriptionKey: event.transcriptionKey,
+      audioKey: event.audioKey,
+      topicsKey: event.topicsKey,
+      outputKey: event.outputKey,
     };
   } catch (err) {
-    console.error("Error in HTML generator handler:", err);
+    console.error("Error in content generator handler:", err);
     throw err;
   }
 };

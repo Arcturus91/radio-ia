@@ -245,6 +245,9 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/gemini/api-key"
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/openai/api-key"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/cloudfront/domain"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/webhook/url"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/radioia/webhook/protection-bypass"
               - Effect: Allow
                 Action:
                   - kms:Decrypt
@@ -409,10 +412,7 @@ Resources:
       Role: !GetAtt RadioIALambdaRole.Arn
       Layers:
         - "arn:aws:lambda:sa-east-1:447470050089:layer:nodejs-deps:1"
-      Environment:
-        Variables:
-          TOPIC_SNS_NOTIFICATION: !Ref NotificationsTopic
-          TOPIC_SNS_ERROR: !Ref ErrorsTopic
+      # Environment variables removed - now using SSM Parameter Store
 
   AnalyzeGetKeywordsFunction:
     Type: AWS::Serverless::Function
@@ -456,7 +456,7 @@ Resources:
         Variables:
           TABLE_NAME: "radioIAContent"
           MEDIA_BUCKET: !Ref RadioIAMediaBucket
-          HTML_PREFIX: "html/"
+          JSON_PREFIX: "content/"
 
 Outputs:
   StateMachineArn:

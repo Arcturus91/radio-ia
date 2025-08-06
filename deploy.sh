@@ -22,7 +22,7 @@ sam build
 
 # Deploy to AWS
 echo "🚀 Deploying to AWS..."
-sam deploy --no-fail-on-empty-changeset
+sam deploy --no-fail-on-empty-changeset --force-upload
 
 echo ""
 echo "✅ Deployment completed successfully!"

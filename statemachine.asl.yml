@@ -87,6 +87,8 @@ States:
         fileKey.$: "$.fileKey"
         transcriptionKey.$: "$.transcriptionKey"
         topicsKey.$: "$.topicsKey"
+        # Pass through audio key from previous step
+        audioKey.$: "$.audioKey"
     Next: GenerateHtml
     Retry:
       - ErrorEquals:
@@ -122,6 +124,10 @@ States:
         contentId.$: "$.contentId"
         keyphrases.$: "$.keyphrases"
         videoUrl.$: "$.videoUrl"
+        # Pass through object keys from previous steps
+        transcriptionKey.$: "$.transcriptionKey"
+        audioKey.$: "$.audioKey"
+        topicsKey.$: "$.topicsKey"
     Next: NotifySuccess
     Retry:
       - ErrorEquals:
@@ -153,6 +159,18 @@ States:
         executionId.$: "$$.Execution.Id"
         fileKey.$: "$.fileKey"
         videoUrl.$: "$.videoUrl"
+        # Content data from content generator
+        title.$: "$.title"
+        description.$: "$.description"
+        tags.$: "$.tags"
+        keywords.$: "$.keywords"
+        jsonObjectKey.$: "$.jsonObjectKey"
+        # Pass through all data that contains object keys
+        transcriptionKey.$: "$.transcriptionKey"
+        keyphrases.$: "$.keyphrases"
+        audioKey.$: "$.audioKey"
+        topicsKey.$: "$.topicsKey"
+        outputKey.$: "$.outputKey"
     End: true
     Retry:
       - ErrorEquals:
